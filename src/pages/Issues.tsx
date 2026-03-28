@@ -23,7 +23,7 @@ import {
 import {
   UploadOutlined,
   CheckCircleFilled,
-  WarningOutlined,
+
   TeamOutlined,
   DollarOutlined,
   FileTextOutlined,
