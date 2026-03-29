@@ -184,7 +184,18 @@ interface DocType {
   label: string;
   description: string;
   uploaded: boolean;
+  reading?: boolean;
+  aiSummary?: string;
 }
+
+const aiSummaries: Record<string, string> = {
+  'Your lease': 'Found: Lease for Flat 5, dated 5 May 1989, 999-year term',
+  'Buildings insurance certificate': 'Found: Allianz policy BB28285956, renewed May 2025, \u00A33,177/year',
+  'Fire risk assessment': 'Found: Capital Fire Protection, December 2025 \u2014 3 remedial actions identified',
+  'Any surveys': 'Found: RICS Level 3 survey by Lapider, October 2024 \u2014 roof at end of life',
+  'Service charge accounts': 'Found: 2025/26 accounts, \u00A37,200 per flat, reserve fund at \u00A312,450',
+  'Meeting minutes': 'Found: Board meeting 19 March 2026 \u2014 roof works approved, 4 actions noted',
+};
 
 const initialDocTypes: DocType[] = [
   { label: 'Your lease', description: 'The legal agreement for your flat. Usually a thick document from when you bought it.', uploaded: false },
@@ -261,13 +272,34 @@ export default function Onboarding() {
     });
   };
 
-  /* Doc toggle */
+  /* Doc toggle — with AI reading animation */
   const toggleDoc = (idx: number) => {
     setDocs((prev) => {
+      // If already uploaded, just toggle off
+      if (prev[idx].uploaded) {
+        const next = [...prev];
+        next[idx] = { ...next[idx], uploaded: false, reading: false, aiSummary: undefined };
+        return next;
+      }
+      // If already reading, do nothing
+      if (prev[idx].reading) return prev;
+      // Start reading animation
       const next = [...prev];
-      next[idx] = { ...next[idx], uploaded: !next[idx].uploaded };
+      next[idx] = { ...next[idx], reading: true };
       return next;
     });
+
+    // After 1s delay, show the AI summary
+    if (!docs[idx].uploaded && !docs[idx].reading) {
+      setTimeout(() => {
+        setDocs((prev) => {
+          const next = [...prev];
+          const summary = aiSummaries[next[idx].label] || 'Found: Document processed successfully';
+          next[idx] = { ...next[idx], reading: false, uploaded: true, aiSummary: summary };
+          return next;
+        });
+      }, 1000);
+    }
   };
 
   /* Summary counts for step 6 */
@@ -685,9 +717,14 @@ export default function Onboarding() {
                       {doc.description}
                     </div>
                   </div>
-                  {doc.uploaded && (
+                  {doc.uploaded && !doc.reading && (
                     <span style={{ fontSize: 12, fontWeight: 600, color: '#059669', whiteSpace: 'nowrap', marginLeft: 12 }}>
                       {'\u2713'} Added
+                    </span>
+                  )}
+                  {doc.reading && (
+                    <span style={{ fontSize: 12, fontWeight: 600, color: TEAL, whiteSpace: 'nowrap', marginLeft: 12 }}>
+                      Reading...
                     </span>
                   )}
                 </div>
@@ -697,25 +734,38 @@ export default function Onboarding() {
                   onClick={() => toggleDoc(idx)}
                   style={{
                     marginTop: 12,
-                    border: doc.uploaded ? `2px solid #059669` : '2px dashed #D1CBC2',
+                    border: doc.reading
+                      ? `2px solid ${TEAL}`
+                      : doc.uploaded
+                        ? `2px solid #059669`
+                        : '2px dashed #D1CBC2',
                     borderRadius: 10,
                     padding: '20px 16px',
                     textAlign: 'center',
-                    cursor: 'pointer',
-                    background: doc.uploaded ? '#F0FDF4' : '#FAFAF8',
+                    cursor: doc.reading ? 'default' : 'pointer',
+                    background: doc.reading ? '#F0F6F8' : doc.uploaded ? '#F0FDF4' : '#FAFAF8',
                     transition: 'all 0.2s ease',
                   }}
                   onMouseEnter={(e) => {
-                    if (!doc.uploaded) e.currentTarget.style.borderColor = TEAL;
+                    if (!doc.uploaded && !doc.reading) e.currentTarget.style.borderColor = TEAL;
                   }}
                   onMouseLeave={(e) => {
-                    if (!doc.uploaded) e.currentTarget.style.borderColor = '#D1CBC2';
+                    if (!doc.uploaded && !doc.reading) e.currentTarget.style.borderColor = '#D1CBC2';
                   }}
                 >
-                  {doc.uploaded ? (
-                    <span style={{ fontSize: 14, color: '#059669', fontWeight: 500 }}>
-                      {'\u2713'} document-{doc.label.toLowerCase().replace(/\s+/g, '-')}.pdf
-                    </span>
+                  {doc.reading ? (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+                      <span style={{ fontSize: 20, animation: 'pulse 1s ease-in-out infinite' }}>{'\uD83D\uDCC4'}</span>
+                      <span style={{ fontSize: 14, color: TEAL, fontWeight: 500 }}>
+                        Reading your document...
+                      </span>
+                    </div>
+                  ) : doc.uploaded ? (
+                    <div>
+                      <span style={{ fontSize: 14, color: '#059669', fontWeight: 500 }}>
+                        {'\u2705'} {doc.aiSummary || `document-${doc.label.toLowerCase().replace(/\s+/g, '-')}.pdf`}
+                      </span>
+                    </div>
                   ) : (
                     <>
                       <div style={{ fontSize: 24, marginBottom: 6, color: '#CBD5E0' }}>{'\uD83D\uDCC4'}</div>

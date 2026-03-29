@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { documents } from '../data/cathedralGreen';
 import dayjs from 'dayjs';
 
@@ -7,6 +7,8 @@ import dayjs from 'dayjs';
 /* ------------------------------------------------------------------ */
 
 const TEAL = '#2A5B6C';
+const AMBER = '#E8913A';
+const AMBER_LIGHT = '#F5A623';
 
 const sectionCard: React.CSSProperties = {
   background: '#FAFAF8',
@@ -201,6 +203,92 @@ const policies: PolicyEntry[] = [
 ];
 
 /* ------------------------------------------------------------------ */
+/*  AI Parsing demo data                                               */
+/* ------------------------------------------------------------------ */
+
+interface ExtractedField {
+  label: string;
+  value: string;
+  bold?: boolean;
+}
+
+interface NoticeItem {
+  icon: string;
+  text: string;
+}
+
+interface DemoResult {
+  intro: string;
+  fields: ExtractedField[];
+  noticeHeading: string;
+  notices: NoticeItem[];
+  extraNote?: string;
+}
+
+const demoResults: DemoResult[] = [
+  // Demo A: Roofing Quote
+  {
+    intro: 'This looks like a contractor quote. Here\u2019s what I found:',
+    fields: [
+      { label: 'Document type', value: 'Contractor quote' },
+      { label: 'From', value: 'Cardiff & Vale Roofing Ltd' },
+      { label: 'Reference', value: 'QT24477-2' },
+      { label: 'Date', value: '19 August 2024' },
+      { label: 'Valid until', value: '18 September 2024 (expired)' },
+      { label: 'Roof replacement', value: '\u00A323,605 + VAT (\u00A328,326)', bold: true },
+      { label: 'Chimney refurbishment (optional)', value: '\u00A31,850 + VAT per stack' },
+      { label: 'Fascia & rainwater goods (optional)', value: '\u00A31,850 + VAT' },
+      { label: 'Connected to any director?', value: 'No \u2014 independent contractor' },
+    ],
+    noticeHeading: 'I\u2019ve also noticed:',
+    notices: [
+      { icon: '\u26A0\uFE0F', text: 'This quote has expired. You may want to ask for an updated price.' },
+      { icon: '\u2705', text: 'This contractor is independent of all directors \u2014 which counts towards your Section 20 consultation requirement.' },
+    ],
+  },
+  // Demo B: Insurance Schedule
+  {
+    intro: 'This looks like an insurance policy. Here\u2019s what I found:',
+    fields: [
+      { label: 'Document type', value: 'Buildings insurance schedule' },
+      { label: 'Insurer', value: 'Allianz Insurance Plc' },
+      { label: 'Policy number', value: 'BB28285956' },
+      { label: 'Broker', value: 'Thomas Carroll (Brokers) Ltd' },
+      { label: 'Effective date', value: '12 May 2025' },
+      { label: 'Premium', value: '\u00A33,177.14/year', bold: true },
+      { label: 'Building type', value: 'Grade 2 Listed, 5 flats, 3 storeys' },
+      { label: 'Year built', value: '1790' },
+      { label: 'Construction', value: 'Brick/stone, slate roof, timber floors' },
+      { label: '20% unoccupied', value: 'Yes (flagged by insurer)' },
+    ],
+    noticeHeading: 'I\u2019ve also noticed:',
+    notices: [
+      { icon: '\u26A0\uFE0F', text: 'The insurer notes that no electrical inspection has been done in the last 5 years. This could affect your cover.' },
+      { icon: '\uD83D\uDCA1', text: 'I can set a reminder for the renewal date \u2014 would that help?' },
+    ],
+  },
+  // Demo C: Survey Report
+  {
+    intro: 'This looks like a building survey. Here\u2019s what I found:',
+    fields: [
+      { label: 'Document type', value: 'RICS Level 3 Listed Building Survey' },
+      { label: 'Surveyor', value: 'Adrian Gardner MRICS, Lapider Ltd' },
+      { label: 'RICS number', value: '1114836' },
+      { label: 'Survey date', value: '18 September 2024' },
+      { label: 'Report issued', value: '2 October 2024' },
+      { label: 'Reference', value: '1814/BS/2024' },
+    ],
+    noticeHeading: 'Key findings:',
+    notices: [
+      { icon: '\uD83D\uDD34', text: 'Urgent: Gas boiler needs inspection. Windows in very poor condition.' },
+      { icon: '\uD83D\uDFE0', text: 'Attention needed: Roof at end of economic life. Chimneys need repair. Lead flashings deteriorating. External timber decaying. Gutters leaking.' },
+      { icon: '\uD83D\uDCA1', text: 'The survey recommends a bat survey before any roof work, and notes the slates likely contain asbestos.' },
+    ],
+    extraNote: 'This creates 8 new items for your building health checklist. Shall I add them?',
+  },
+];
+
+/* ------------------------------------------------------------------ */
 /*  Sub-components                                                     */
 /* ------------------------------------------------------------------ */
 
@@ -271,6 +359,347 @@ function DocGroup({
 }
 
 /* ------------------------------------------------------------------ */
+/*  AI Upload Section                                                  */
+/* ------------------------------------------------------------------ */
+
+type UploadPhase = 'idle' | 'reading' | 'results' | 'saved';
+
+function AiUploadSection() {
+  const [phase, setPhase] = useState<UploadPhase>('idle');
+  const [demoIndex, setDemoIndex] = useState(0);
+  const [dropHover, setDropHover] = useState(false);
+  const [pulseOpacity, setPulseOpacity] = useState(1);
+
+  // Pulsing animation during reading phase
+  useEffect(() => {
+    if (phase !== 'reading') return;
+    let frame: number;
+    let start: number | null = null;
+    const animate = (ts: number) => {
+      if (!start) start = ts;
+      const elapsed = (ts - start) / 1000;
+      setPulseOpacity(0.4 + 0.6 * Math.abs(Math.sin(elapsed * 2.5)));
+      frame = requestAnimationFrame(animate);
+    };
+    frame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frame);
+  }, [phase]);
+
+  const handleClick = () => {
+    if (phase === 'reading' || phase === 'results') return;
+
+    if (phase === 'saved') {
+      // Reset for next demo
+      setPhase('idle');
+      return;
+    }
+
+    // Start reading
+    setPhase('reading');
+    setTimeout(() => {
+      setPhase('results');
+    }, 1500);
+  };
+
+  const handleSave = () => {
+    setPhase('saved');
+    // Cycle to next demo for next upload
+    setDemoIndex((prev) => (prev + 1) % demoResults.length);
+  };
+
+  const handleReset = () => {
+    setPhase('idle');
+  };
+
+  const demo = demoResults[demoIndex];
+
+  return (
+    <div
+      style={{
+        background: '#FFF9F3',
+        borderRadius: 14,
+        padding: '32px 36px',
+        marginBottom: 28,
+        border: '1px solid #F0E6D8',
+      }}
+    >
+      <h2 style={{ ...sectionHeading, marginBottom: 8 }}>Add a document</h2>
+      <p style={{ ...bodyText, color: '#718096', marginBottom: 20 }}>
+        Drop a file here &mdash; a quote, survey, insurance certificate, lease, anything.
+        We'll read it and pull out the important bits.
+      </p>
+
+      {/* ---- IDLE: Drop zone ---- */}
+      {phase === 'idle' && (
+        <div
+          onClick={handleClick}
+          onMouseEnter={() => setDropHover(true)}
+          onMouseLeave={() => setDropHover(false)}
+          style={{
+            border: '2px dashed #CBD5E1',
+            borderRadius: 12,
+            padding: '40px 24px',
+            textAlign: 'center' as const,
+            cursor: 'pointer',
+            background: dropHover ? '#F0F8FA' : '#FFFCF9',
+            borderColor: dropHover ? TEAL : '#CBD5E1',
+            transition: 'all 0.2s ease',
+            minHeight: 150,
+            display: 'flex',
+            flexDirection: 'column' as const,
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 10,
+          }}
+        >
+          <div style={{ fontSize: 36, opacity: 0.5 }}>{'\uD83D\uDCC1'}</div>
+          <div style={{ fontSize: 15, color: '#4A5568', fontWeight: 500 }}>
+            Drop a PDF, Word doc, or image here &mdash; or click to browse
+          </div>
+          <div style={{ fontSize: 13, color: '#A0AEC0' }}>
+            PDF, Word, photos of documents
+          </div>
+        </div>
+      )}
+
+      {/* ---- READING: Pulsing animation ---- */}
+      {phase === 'reading' && (
+        <div
+          style={{
+            border: '2px solid #D0DEE3',
+            borderRadius: 12,
+            padding: '40px 24px',
+            textAlign: 'center' as const,
+            background: '#F0F6F8',
+            minHeight: 150,
+            display: 'flex',
+            flexDirection: 'column' as const,
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 14,
+          }}
+        >
+          <div style={{ fontSize: 42, opacity: pulseOpacity, transition: 'opacity 0.1s ease' }}>
+            {'\uD83D\uDCC4'}
+          </div>
+          <div style={{ fontSize: 16, color: TEAL, fontWeight: 600 }}>
+            Reading your document...
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              gap: 6,
+              justifyContent: 'center',
+              marginTop: 4,
+            }}
+          >
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  background: TEAL,
+                  opacity: pulseOpacity * (0.4 + 0.2 * i),
+                  transition: 'opacity 0.15s ease',
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ---- RESULTS: Extracted data ---- */}
+      {phase === 'results' && (
+        <div style={{ animation: 'fadeIn 0.4s ease' }}>
+          <div
+            style={{
+              background: '#FFFFFF',
+              borderRadius: 12,
+              padding: '28px 32px',
+              border: '1px solid #E8E6E1',
+              marginBottom: 20,
+            }}
+          >
+            {/* Intro */}
+            <p style={{ fontSize: 15, color: TEAL, fontWeight: 600, margin: '0 0 20px', lineHeight: 1.5 }}>
+              {demo.intro}
+            </p>
+
+            {/* Extracted fields — warm readable list */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+              {demo.fields.map((field, i) => (
+                <div
+                  key={i}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'baseline',
+                    padding: '10px 0',
+                    borderBottom: i < demo.fields.length - 1 ? '1px solid #F2F0ED' : 'none',
+                    gap: 16,
+                  }}
+                >
+                  <span style={{ fontSize: 14, color: '#718096', flexShrink: 0, minWidth: 160 }}>
+                    {field.label}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 15,
+                      color: '#1A2636',
+                      fontWeight: field.bold ? 700 : 500,
+                      textAlign: 'right' as const,
+                    }}
+                  >
+                    {field.value}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Notices */}
+            <div style={{ marginTop: 24 }}>
+              <p style={{ fontSize: 14, color: '#718096', fontWeight: 500, margin: '0 0 12px' }}>
+                {demo.noticeHeading}
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {demo.notices.map((notice, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: 'flex',
+                      gap: 10,
+                      alignItems: 'flex-start',
+                      padding: '12px 16px',
+                      background: '#FAFAF8',
+                      borderRadius: 8,
+                      border: '1px solid #F2F0ED',
+                    }}
+                  >
+                    <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>{notice.icon}</span>
+                    <span style={{ fontSize: 14, color: '#2D3748', lineHeight: 1.6 }}>
+                      {notice.text}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Extra note (for survey demo) */}
+            {demo.extraNote && (
+              <p
+                style={{
+                  fontSize: 14,
+                  color: TEAL,
+                  fontWeight: 500,
+                  margin: '20px 0 0',
+                  lineHeight: 1.55,
+                  fontStyle: 'italic',
+                }}
+              >
+                {demo.extraNote}
+              </p>
+            )}
+          </div>
+
+          {/* Action buttons */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+            <button
+              onClick={handleSave}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                background: AMBER,
+                color: '#FFFFFF',
+                border: 'none',
+                borderRadius: 10,
+                padding: '14px 28px',
+                fontSize: 15,
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = AMBER_LIGHT;
+                e.currentTarget.style.transform = 'translateY(-1px)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = AMBER;
+                e.currentTarget.style.transform = 'translateY(0)';
+              }}
+            >
+              Save to building records {'\u2192'}
+            </button>
+            <span
+              onClick={handleReset}
+              style={{
+                fontSize: 14,
+                color: '#718096',
+                cursor: 'pointer',
+                textDecoration: 'underline',
+                textUnderlineOffset: 3,
+              }}
+            >
+              Something's not right &mdash; let me fix it
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* ---- SAVED: Success message ---- */}
+      {phase === 'saved' && (
+        <div
+          style={{
+            background: '#F0FDF4',
+            borderRadius: 12,
+            padding: '24px 28px',
+            border: '1px solid #BBF7D0',
+            textAlign: 'center' as const,
+          }}
+        >
+          <div style={{ fontSize: 28, marginBottom: 10 }}>{'\u2705'}</div>
+          <p style={{ fontSize: 15, color: '#15803D', fontWeight: 600, margin: '0 0 6px' }}>
+            Saved!
+          </p>
+          <p style={{ fontSize: 14, color: '#4A5568', margin: '0 0 16px', lineHeight: 1.55 }}>
+            I've added this to your documents and updated your building's records.
+          </p>
+          <button
+            onClick={handleReset}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              background: 'transparent',
+              color: TEAL,
+              border: `1px solid ${TEAL}`,
+              borderRadius: 8,
+              padding: '10px 20px',
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = TEAL;
+              e.currentTarget.style.color = '#FFFFFF';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = TEAL;
+            }}
+          >
+            Add another document
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -305,6 +734,11 @@ export default function Documents() {
       <p style={{ ...bodyText, color: '#718096', marginBottom: 28 }}>
         Everything in one place — surveys, insurance, meeting notes, policies, and more.
       </p>
+
+      {/* ============================================================ */}
+      {/* AI Upload Section — always visible at top                     */}
+      {/* ============================================================ */}
+      <AiUploadSection />
 
       {/* ============================================================ */}
       {/* Search                                                        */}
